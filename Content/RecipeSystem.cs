@@ -1,6 +1,12 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
+using Newtonsoft.Json;
+using BiomeBlockRecipes.Common;
 using BiomeBlockRecipes.Configs;
 
 namespace BiomeBlockRecipes.Content
@@ -8,80 +14,104 @@ namespace BiomeBlockRecipes.Content
     public class RecipeSystem : ModSystem
     {
         private static BiomeBlockRecipesConfig Config => ModContent.GetInstance<BiomeBlockRecipesConfig>();
+        private List<BiomeVariantData> biomeVariants;
+
+        public override void Load()
+        {
+            LoadBiomeData();
+        }
+
+        private void LoadBiomeData()
+        {
+            try
+            {
+                string jsonPath = Path.Combine(Mod.GetFilePathNoExtension("Content/BiomeVariants"), ".json");
+                string jsonContent = File.ReadAllText(jsonPath);
+                biomeVariants = JsonConvert.DeserializeObject<List<BiomeVariantData>>(jsonContent);
+                Mod.Logger.Info($"Loaded {biomeVariants.Count} biome variant families from JSON");
+            }
+            catch (Exception ex)
+            {
+                Mod.Logger.Error($"Failed to load BiomeVariants.json: {ex.Message}");
+                biomeVariants = new List<BiomeVariantData>();
+            }
+        }
 
         public override void AddRecipes()
         {
-            // ===== BLOCK CONVERSIONS =====
+            if (biomeVariants == null || biomeVariants.Count == 0)
+            {
+                Mod.Logger.Warn("No biome variants loaded, skipping recipe generation");
+                return;
+            }
+
+            // Add four-way biome conversions from JSON
+            AddBiomeConversionRecipes();
+
+            // Add special solution conversions (Yellow, White, Brown)
             if (Config.BlockConversionAmount > 0)
             {
-                AddBlockRecipes();
                 AddSpecialSolutionRecipes();
             }
 
-            // ===== WALL CONVERSIONS =====
-            if (Config.WallConversionAmount > 0)
-            {
-                AddWallRecipes();
-            }
-
-            // ===== SEED CONVERSIONS =====
+            // Add Grass -> Mushroom seed conversion
             if (Config.SeedConversionAmount > 0)
             {
-                AddSeedRecipes();
+                AddMushroomSeedRecipe();
             }
         }
 
-        #region Block Recipes
+        #region JSON-Based Biome Conversions
 
-        private void AddBlockRecipes()
+        private void AddBiomeConversionRecipes()
         {
-            int amount = Config.BlockConversionAmount;
+            int[] solutions = { ItemID.GreenSolution, ItemID.PurpleSolution, ItemID.RedSolution, ItemID.BlueSolution };
+            string[] solutionNames = { "Green (Pure)", "Purple (Corrupt)", "Red (Crimson)", "Blue (Hallowed)" };
 
-            // Stone Family: Stone <-> Ebonstone <-> Crimstone <-> Pearlstone
-            AddFourWayBiomeConversions(
-                pure: ItemID.StoneBlock,
-                corrupt: ItemID.EbonstoneBlock,
-                crimson: ItemID.CrimstoneBlock,
-                hallow: ItemID.PearlstoneBlock,
-                amount: amount
-            );
+            foreach (var variant in biomeVariants)
+            {
+                int amount = variant.GetAmount(Config);
+                
+                // Skip if amount is disabled
+                if (amount <= 0) continue;
 
-            // Sand Family: Sand <-> Ebonsand <-> Crimsand <-> Pearlsand
-            AddFourWayBiomeConversions(
-                pure: ItemID.SandBlock,
-                corrupt: ItemID.EbonsandBlock,
-                crimson: ItemID.CrimsandBlock,
-                hallow: ItemID.PearlsandBlock,
-                amount: amount
-            );
+                // Get all available variant IDs
+                int[] variantIDs = {
+                    variant.PureID,
+                    variant.CorruptID ?? -1,
+                    variant.CrimsonID ?? -1,
+                    variant.HallowedID ?? -1
+                };
 
-            // Ice Family: Ice <-> Purple Ice <-> Red Ice <-> Pink Ice
-            AddFourWayBiomeConversions(
-                pure: ItemID.IceBlock,
-                corrupt: ItemID.PurpleIceBlock,
-                crimson: ItemID.RedIceBlock,
-                hallow: ItemID.PinkIceBlock,
-                amount: amount
-            );
+                int[] targetIDs = {
+                    variant.PureID,
+                    variant.CorruptID ?? -1,
+                    variant.CrimsonID ?? -1,
+                    variant.HallowedID ?? -1
+                };
 
-            // Hardened Sand Family
-            AddFourWayBiomeConversions(
-                pure: ItemID.HardenedSand,
-                corrupt: ItemID.CorruptHardenedSand,
-                crimson: ItemID.CrimsonHardenedSand,
-                hallow: ItemID.HallowHardenedSand,
-                amount: amount
-            );
+                // Create recipes for each solution/target combination
+                for (int targetIndex = 0; targetIndex < 4; targetIndex++)
+                {
+                    int targetID = targetIDs[targetIndex];
+                    
+                    // Skip if this variant doesn't exist (null in JSON)
+                    if (targetID == -1) continue;
 
-            // Sandstone Family
-            AddFourWayBiomeConversions(
-                pure: ItemID.Sandstone,
-                corrupt: ItemID.CorruptSandstone,
-                crimson: ItemID.CrimsonSandstone,
-                hallow: ItemID.HallowSandstone,
-                amount: amount
-            );
+                    foreach (int sourceID in variantIDs)
+                    {
+                        // Skip if source doesn't exist or is the same as target
+                        if (sourceID == -1 || sourceID == targetID) continue;
+
+                        AddConversionRecipe(sourceID, targetID, solutions[targetIndex], amount);
+                    }
+                }
+            }
         }
+
+        #endregion
+
+        #region Special Solution Conversions
 
         private void AddSpecialSolutionRecipes()
         {
@@ -106,84 +136,19 @@ namespace BiomeBlockRecipes.Content
             AddConversionRecipe(ItemID.HardenedSand, ItemID.StoneBlock, ItemID.DirtSolution, amount);
         }
 
-        #endregion
-
-        #region Wall Recipes
-
-        private void AddWallRecipes()
+        private void AddMushroomSeedRecipe()
         {
-            int amount = Config.WallConversionAmount;
-
-            // Hardened Sand Walls
-            AddFourWayBiomeConversions(
-                pure: ItemID.HardenedSandWall,
-                corrupt: ItemID.CorruptHardenedSandWall,
-                crimson: ItemID.CrimsonHardenedSandWall,
-                hallow: ItemID.HallowHardenedSandWall,
-                amount: amount
+            AddConversionRecipe(
+                ItemID.GrassSeeds, 
+                ItemID.MushroomGrassSeeds, 
+                ItemID.DarkBlueSolution, 
+                Config.SeedConversionAmount
             );
-
-            // Sandstone Walls
-            AddFourWayBiomeConversions(
-                pure: ItemID.SandstoneWall,
-                corrupt: ItemID.CorruptSandstoneWall,
-                crimson: ItemID.CrimsonSandstoneWall,
-                hallow: ItemID.HallowSandstoneWall,
-                amount: amount
-            );
-        }
-
-        #endregion
-
-        #region Seed Recipes
-
-        private void AddSeedRecipes()
-        {
-            int amount = Config.SeedConversionAmount;
-
-            // Four-way grass seed conversions
-            int[] biomeSeeds = { ItemID.GrassSeeds, ItemID.CorruptSeeds, ItemID.CrimsonSeeds, ItemID.HallowedSeeds };
-            int[] solutions = { ItemID.GreenSolution, ItemID.PurpleSolution, ItemID.RedSolution, ItemID.BlueSolution };
-
-            for (int i = 0; i < 4; i++)
-            {
-                foreach (int source in biomeSeeds)
-                {
-                    if (source != biomeSeeds[i])
-                    {
-                        AddConversionRecipe(source, biomeSeeds[i], solutions[i], amount);
-                    }
-                }
-            }
-
-            // Grass Seeds -> Mushroom Grass Seeds (Dark Blue Solution)
-            AddConversionRecipe(ItemID.GrassSeeds, ItemID.MushroomGrassSeeds, ItemID.DarkBlueSolution, amount);
         }
 
         #endregion
 
         #region Helper Methods
-
-        /// <summary>
-        /// Adds all four-way biome conversions for a block/wall family (Pure, Corrupt, Crimson, Hallow).
-        /// Creates 12 recipes total (each variant can convert to any of the other 3).
-        /// </summary>
-        private void AddFourWayBiomeConversions(int pure, int corrupt, int crimson, int hallow, int amount)
-        {
-            int[] variants = { pure, corrupt, crimson, hallow };
-            int[] solutions = { ItemID.GreenSolution, ItemID.PurpleSolution, ItemID.RedSolution, ItemID.BlueSolution };
-
-            for (int targetIndex = 0; targetIndex < 4; targetIndex++)
-            {
-                foreach (int source in variants)
-                {
-                    if (source != variants[targetIndex])
-                    {
-                        AddConversionRecipe(source, variants[targetIndex], solutions[targetIndex], amount);
-                    }
-                }
-            }
-        }
 
         /// <summary>
         /// Creates a single conversion recipe at the Steampunk Boiler.
