@@ -48,6 +48,12 @@ namespace BiomeBlockRecipes.Content
             // Add four-way biome conversions from JSON
             AddBiomeConversionRecipes();
 
+            // Add Chlorophyte Extractinator purification recipes
+            if (Config.EnableExtractinatorRecipes)
+            {
+                AddExtractinatorPurificationRecipes();
+            }
+
             // Add special solution conversions (Yellow, White, Brown)
             if (Config.BlockConversionAmount > 0)
             {
@@ -107,6 +113,63 @@ namespace BiomeBlockRecipes.Content
                     }
                 }
             }
+        }
+
+        #endregion
+
+        #region Chlorophyte Extractinator Purification
+
+        /// <summary>
+        /// Adds purification recipes at the Chlorophyte Extractinator.
+        /// Converts infected blocks (Corrupt/Crimson/Hallowed) to their Pure variants without requiring solution.
+        /// </summary>
+        private void AddExtractinatorPurificationRecipes()
+        {
+            int recipesAdded = 0;
+
+            foreach (var variant in biomeVariants)
+            {
+                int amount = variant.GetAmount(Config);
+                
+                // Skip if amount is disabled
+                if (amount <= 0) continue;
+
+                // Corrupt -> Pure
+                if (variant.CorruptID.HasValue)
+                {
+                    AddExtractinatorRecipe(variant.CorruptID.Value, variant.PureID, amount);
+                    recipesAdded++;
+                }
+
+                // Crimson -> Pure
+                if (variant.CrimsonID.HasValue)
+                {
+                    AddExtractinatorRecipe(variant.CrimsonID.Value, variant.PureID, amount);
+                    recipesAdded++;
+                }
+
+                // Hallowed -> Pure
+                if (variant.HallowedID.HasValue)
+                {
+                    AddExtractinatorRecipe(variant.HallowedID.Value, variant.PureID, amount);
+                    recipesAdded++;
+                }
+            }
+
+            Mod.Logger.Info($"Added {recipesAdded} Chlorophyte Extractinator purification recipes");
+        }
+
+        /// <summary>
+        /// Creates a purification recipe at the Chlorophyte Extractinator (no solution required).
+        /// </summary>
+        private void AddExtractinatorRecipe(int inputItem, int outputItem, int amount)
+        {
+            if (amount <= 0) return;
+
+            Recipe recipe = Recipe.Create(outputItem, amount);
+            recipe.AddIngredient(inputItem, amount);
+            recipe.AddTile(TileID.ChlorophyteExtractinator);
+            recipe.Register();
         }
 
         #endregion
